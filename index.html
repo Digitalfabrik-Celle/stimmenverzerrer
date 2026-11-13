@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#0d0a14">
+<title>Kostüm-Stimmenverzerrer</title>
+<style>
+  :root{--bg:#0d0a14;--card:#1a1424;--line:#2e2540;--txt:#eee6f7;--mut:#9a8fb0;--acc:#ff7a1a;--acc2:#8f5cff;--ok:#4ade80;--warn:#fbbf24}
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(circle at 50% -10%,#2a1640 0,var(--bg) 60%);color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh}
+  main{max-width:560px;margin:0 auto;padding:16px 14px 40px}
+  h1{font-size:1.35rem;margin:6px 0 2px;letter-spacing:.3px}
+  .sub{color:var(--mut);font-size:.85rem;margin:0 0 14px}
+  #start{width:100%;padding:20px;font-size:1.25rem;font-weight:700;border:0;border-radius:16px;background:linear-gradient(135deg,var(--acc),#ff3d6e);color:#fff;cursor:pointer;box-shadow:0 6px 24px #ff5a3a55}
+  #start.on{background:linear-gradient(135deg,#3a2f4f,#2a2238);box-shadow:none}
+  .status{font-size:.82rem;color:var(--mut);margin:8px 2px 12px;min-height:1.2em}
+  .status b{color:var(--ok)}
+  .meters{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;font-size:.75rem;color:var(--mut);margin-bottom:14px}
+  .bar{height:10px;background:#000a;border-radius:6px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ok),var(--warn),#ef4444);transition:width .05s}
+  .presets{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}
+  .presets button{background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:14px;padding:12px 4px;font-size:.85rem;cursor:pointer;line-height:1.3}
+  .presets button span{display:block;font-size:1.6rem}
+  .presets button.sel{border-color:var(--acc);background:#2a1a2a;box-shadow:0 0 0 1px var(--acc) inset}
+  details{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:4px 14px 10px;margin-bottom:12px}
+  summary{cursor:pointer;padding:10px 0;font-weight:600}
+  .row{margin:12px 0}
+  .row label{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:4px}
+  .row label output{color:var(--acc);font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--acc);height:28px}
+  .tips{font-size:.82rem;color:var(--mut);line-height:1.5}
+  .tips li{margin-bottom:6px}
+  .warn{background:#3a2a0a;border:1px solid #6b4a10;color:#fde68a;border-radius:12px;padding:10px 12px;font-size:.82rem;margin-bottom:14px;line-height:1.45}
+  .err{background:#3a0f16;border-color:#7f1d2d;color:#fecaca}
+  .chk{display:flex;align-items:center;gap:8px;font-size:.85rem;margin:10px 0}
+</style>
+</head>
+<body>
+<main>
+  <h1>🎃 Kostüm-Stimmenverzerrer</h1>
+  <p class="sub">Live-Effekte fürs Mikrofon – Halloween &amp; Fasching</p>
+
+  <div class="warn" id="fbwarn">🎧 <b>Rückkopplung vermeiden:</b> Mikro und Lautsprecher räumlich trennen (z.&nbsp;B. Headset-Mikro im Maskenbereich, Lautsprecher am Gürtel). Zum Testen erst Kopfhörer nehmen.</div>
+
+  <button id="start">▶ Starten</button>
+  <div class="status" id="status">Bereit. Tippe auf „Starten“ und erlaube das Mikrofon.</div>
+
+  <div class="meters">
+    <span>Mikro</span><div class="bar"><i id="mIn"></i></div>
+    <span>Ausgang</span><div class="bar"><i id="mOut"></i></div>
+  </div>
+
+  <div class="presets" id="presets"></div>
+
+  <details open>
+    <summary>🎛️ Feineinstellung</summary>
+    <div id="sliders"></div>
+    <label class="chk"><input type="checkbox" id="gate" checked> Rauschsperre (unterdrückt Brummen/Rauschen in Sprechpausen)</label>
+  </details>
+
+  <details>
+    <summary>💡 Tipps für das Kostüm</summary>
+    <ul class="tips">
+      <li><b>Kabel schlägt Bluetooth:</b> Bluetooth-Lautsprecher/-Headsets haben oft 150–300&nbsp;ms Verzögerung – dann hört man ein Echo der eigenen Stimme. Kabel-Lautsprecher (Klinke oder USB-C-Adapter) sind nahezu verzögerungsfrei.</li>
+      <li><b>Mikro nah am Mund,</b> Lautsprecher möglichst weit weg und vom Mikro weg gerichtet.</li>
+      <li>Fängt es an zu pfeifen: Lautstärke runter oder Mikro-Empfindlichkeit runter.</li>
+      <li>Die echte Stimme hört man unter einer Maske trotzdem leise mit – der Lautsprecher muss also lauter sein als die gedämpfte eigene Stimme.</li>
+      <li>Bildschirm bleibt während des Betriebs an (wenn das Handy es erlaubt). Hintergrund-Betrieb funktioniert im Browser nicht zuverlässig.</li>
+    </ul>
+  </details>
+  <p class="sub" id="lat"></p>
+</main>
+
+<script>
+// ---------- Pitch-Shifter als AudioWorklet (Delay-Line mit zwei überblendeten Leseköpfen) ----------
+const WORKLET = `
+class PitchShifter extends AudioWorkletProcessor {
+  static get parameterDescriptors(){ return [{name:'ratio',defaultValue:1,minValue:0.25,maxValue:4,automationRate:'k-rate'}]; }
+  constructor(){
+    super();
+    this.W = Math.floor(sampleRate*0.04);      // Fenster ~40 ms
+    this.size = 16384; this.mask = this.size-1;
+    this.buf = new Float32Array(this.size);
+    this.w = 0; this.p = 0;
+  }
+  read(pos){ const i = Math.floor(pos), f = pos - i; const a = this.buf[i & this.mask], b = this.buf[(i+1) & this.mask]; return a + (b-a)*f; }
+  process(inputs, outputs, params){
+    const out = outputs[0]; if(!out || !out[0]) return true;
+    const inp = inputs[0] && inputs[0][0] ? inputs[0][0] : null;
+    const o = out[0], r = params.ratio[0], W = this.W, step = (1 - r)/W, TWO_PI = 2*Math.PI;
+    const bypass = Math.abs(r-1) < 0.002;
+    for(let i=0;i<o.length;i++){
+      const x = inp ? inp[i] : 0;
+      this.buf[this.w] = x;
+      if(bypass){ o[i] = x; }
+      else{
+        const p1 = this.p; let p2 = p1 + 0.5; if(p2 >= 1) p2 -= 1;
+        const s1 = this.read(this.w - (p1*W + 2));
+        const s2 = this.read(this.w - (p2*W + 2));
+        o[i] = s1*(0.5-0.5*Math.cos(TWO_PI*p1)) + s2*(0.5-0.5*Math.cos(TWO_PI*p2));
+        this.p += step; if(this.p >= 1) this.p -= 1; else if(this.p < 0) this.p += 1;
+      }
+      this.w = (this.w + 1) & this.mask;
+    }
+    for(let c=1;c<out.length;c++) out[c].set(o);
+    return true;
+  }
+}
+registerProcessor('pitch-shifter', PitchShifter);
+
+class NoiseGate extends AudioWorkletProcessor {
+  static get parameterDescriptors(){ return [{name:'on',defaultValue:1,automationRate:'k-rate'},{name:'thresh',defaultValue:0.012,automationRate:'k-rate'}]; }
+  constructor(){ super(); this.env=0; this.g=1; }
+  process(inputs, outputs, params){
+    const out = outputs[0]; if(!out || !out[0]) return true;
+    const inp = inputs[0] && inputs[0][0] ? inputs[0][0] : null; const o = out[0];
+    const on = params.on[0] > 0.5, th = params.thresh[0];
+    const att = 1 - Math.exp(-1/(sampleRate*0.002)), rel = 1 - Math.exp(-1/(sampleRate*0.15));
+    for(let i=0;i<o.length;i++){
+      const x = inp ? inp[i] : 0, ax = Math.abs(x);
+      this.env += (ax > this.env ? att : rel) * (ax - this.env);
+      const target = (!on || this.env > th) ? 1 : 0;
+      this.g += (target > this.g ? 0.01 : 0.0004) * (target - this.g);
+      o[i] = x * this.g;
+    }
+    return true;
+  }
+}
+registerProcessor('noise-gate', NoiseGate);
+`;
+
+// ---------- Presets ----------
+const PRESETS = [
+  {id:'normal', e:'🙂', n:'Normal',     pitch:1,    robot:0, rf:50,  dist:0,   ft:'lowpass',  ff:20000, echo:0,   et:.25, rev:0},
+  {id:'daemon', e:'😈', n:'Dämon',      pitch:.62,  robot:0, rf:50,  dist:.35, ft:'lowpass',  ff:2600,  echo:0,   et:.25, rev:.25},
+  {id:'riese',  e:'🧌', n:'Riese',      pitch:.75,  robot:0, rf:50,  dist:.05, ft:'lowpass',  ff:4000,  echo:.1,  et:.18, rev:.35},
+  {id:'zombie', e:'🧟', n:'Zombie',     pitch:.82,  robot:0, rf:50,  dist:.55, ft:'lowpass',  ff:1800,  echo:0,   et:.25, rev:.15},
+  {id:'geist',  e:'👻', n:'Geist',      pitch:1.12, robot:0, rf:50,  dist:0,   ft:'lowpass',  ff:3500,  echo:.35, et:.35, rev:.6},
+  {id:'hexe',   e:'🧙', n:'Hexe',       pitch:1.3,  robot:0, rf:50,  dist:.15, ft:'highpass', ff:350,   echo:.15, et:.12, rev:.15},
+  {id:'kobold', e:'🐭', n:'Kobold',     pitch:1.65, robot:0, rf:50,  dist:0,   ft:'lowpass',  ff:20000, echo:0,   et:.25, rev:0},
+  {id:'robot',  e:'🤖', n:'Roboter',    pitch:1,    robot:1, rf:50,  dist:.1,  ft:'lowpass',  ff:20000, echo:0,   et:.25, rev:.1},
+  {id:'blech',  e:'🦾', n:'Blechmann',  pitch:.9,   robot:1, rf:30,  dist:.25, ft:'bandpass', ff:1200,  echo:0,   et:.25, rev:.05},
+  {id:'alien',  e:'👽', n:'Alien',      pitch:1.25, robot:.6,rf:220, dist:0,   ft:'lowpass',  ff:20000, echo:.2,  et:.09, rev:.2},
+  {id:'funk',   e:'📻', n:'Funkgerät',  pitch:1,    robot:0, rf:50,  dist:.6,  ft:'bandpass', ff:1600,  echo:0,   et:.25, rev:0},
+  {id:'hoehle', e:'🦇', n:'Höhle',      pitch:.95,  robot:0, rf:50,  dist:0,   ft:'lowpass',  ff:9000,  echo:.45, et:.25, rev:.45},
+];
+
+// ---------- Regler ----------
+const st = {pitch:1, robot:0, rf:50, dist:0, ft:'lowpass', ff:20000, echo:0, et:.25, rev:0, vol:.8, inGain:1};
+const SL = [
+  {k:'pitch', n:'Tonhöhe', min:-12, max:12, step:.5, toUI:v=>12*Math.log2(v), fromUI:u=>Math.pow(2,u/12), fmt:u=>(u>0?'+':'')+u.toFixed(1)+' HT'},
+  {k:'robot', n:'Roboter-Anteil', min:0, max:1, step:.01, fmt:u=>Math.round(u*100)+' %'},
+  {k:'rf', n:'Roboter-Frequenz', min:10, max:300, step:1, fmt:u=>u+' Hz'},
+  {k:'dist', n:'Verzerrung', min:0, max:1, step:.01, fmt:u=>Math.round(u*100)+' %'},
+  {k:'ff', n:'Klangfilter', min:Math.log(200), max:Math.log(20000), step:.01, toUI:v=>Math.log(v), fromUI:u=>Math.exp(u), fmt:u=>Math.round(Math.exp(u))+' Hz'},
+  {k:'echo', n:'Echo', min:0, max:.8, step:.01, fmt:u=>Math.round(u*100)+' %'},
+  {k:'et', n:'Echo-Abstand', min:.05, max:.8, step:.01, fmt:u=>Math.round(u*1000)+' ms'},
+  {k:'rev', n:'Hall', min:0, max:1, step:.01, fmt:u=>Math.round(u*100)+' %'},
+  {k:'inGain', n:'Mikro-Empfindlichkeit', min:.2, max:4, step:.05, fmt:u=>'×'+u.toFixed(2)},
+  {k:'vol', n:'Lautstärke', min:0, max:1.5, step:.01, fmt:u=>Math.round(u*100)+' %'},
+];
+
+const $ = id => document.getElementById(id);
+const sliderEls = {};
+SL.forEach(s=>{
+  const row = document.createElement('div'); row.className='row';
+  row.innerHTML = `<label>${s.n}<output></output></label><input type="range" min="${s.min}" max="${s.max}" step="${s.step}">`;
+  const inp = row.querySelector('input'), out = row.querySelector('output');
+  inp.addEventListener('input', ()=>{ const u=+inp.value; st[s.k] = s.fromUI ? s.fromUI(u) : u; out.textContent=s.fmt(u); markPreset(null); apply(); });
+  sliderEls[s.k] = {inp,out,s};
+  $('sliders').appendChild(row);
+});
+function syncSliders(){ for(const k in sliderEls){ const {inp,out,s}=sliderEls[k]; const u = s.toUI ? s.toUI(st[k]) : st[k]; inp.value=u; out.textContent=s.fmt(+inp.value); } }
+
+PRESETS.forEach(p=>{
+  const b=document.createElement('button'); b.dataset.id=p.id; b.innerHTML=`<span>${p.e}</span>${p.n}`;
+  b.onclick=()=>{ Object.assign(st, {pitch:p.pitch,robot:p.robot,rf:p.rf,dist:p.dist,ft:p.ft,ff:p.ff,echo:p.echo,et:p.et,rev:p.rev}); syncSliders(); markPreset(p.id); apply(); };
+  $('presets').appendChild(b);
+});
+function markPreset(id){ document.querySelectorAll('#presets button').forEach(b=>b.classList.toggle('sel', b.dataset.id===id)); }
+markPreset('normal'); syncSliders();
+
+// ---------- Audio-Graph ----------
+let ctx, stream, N = {}, running = false, wakeLock = null, raf;
+
+function distCurve(a){
+  const n=2048, c=new Float32Array(n), k=a*60;
+  for(let i=0;i<n;i++){ const x=i*2/(n-1)-1; c[i] = k===0 ? x : (1+k)*x/(1+k*Math.abs(x)); }
+  return c;
+}
+function impulse(sec, decay){
+  const len=Math.floor(ctx.sampleRate*sec), b=ctx.createBuffer(2,len,ctx.sampleRate);
+  for(let ch=0;ch<2;ch++){ const d=b.getChannelData(ch); for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay); }
+  return b;
+}
+const T = (param, v) => param.setTargetAtTime(v, ctx.currentTime, 0.03);
+
+function apply(){
+  if(!ctx) return;
+  N.pitch.parameters.get('ratio').setValueAtTime(st.pitch, ctx.currentTime);
+  T(N.inGain.gain, st.inGain);
+  T(N.dryR.gain, 1 - st.robot); T(N.wetR.gain, st.robot); T(N.osc.frequency, st.rf);
+  N.shaper.curve = distCurve(st.dist);
+  T(N.shaperOut.gain, 1/(1+st.dist*1.5));
+  if(N.filt.type !== st.ft) N.filt.type = st.ft;
+  T(N.filt.frequency, st.ft==='highpass' ? Math.min(st.ff, 2000) : st.ff);
+  N.filt.Q.value = st.ft==='bandpass' ? 1.1 : 0.7;
+  T(N.echoSend.gain, st.echo); T(N.dly.delayTime, st.et); T(N.fb.gain, Math.min(st.echo*0.85, 0.75));
+  T(N.revSend.gain, st.rev * 0.9); T(N.dry.gain, 1 - st.rev*0.35);
+  T(N.master.gain, st.vol);
+  N.gate.parameters.get('on').setValueAtTime($('gate').checked?1:0, ctx.currentTime);
+}
+$('gate').onchange = apply;
+
+async function start(){
+  try{
+    $('status').textContent = 'Mikrofon wird angefragt …';
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Kein Mikrofonzugriff möglich. Die Seite muss über https:// geöffnet werden.');
+    stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:1}});
+    ctx = new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive'});
+    const url = URL.createObjectURL(new Blob([WORKLET],{type:'application/javascript'}));
+    await ctx.audioWorklet.addModule(url);
+
+    const src = ctx.createMediaStreamSource(stream);
+    N.inGain = ctx.createGain();
+    N.hp = ctx.createBiquadFilter(); N.hp.type='highpass'; N.hp.frequency.value=90;
+    N.gate = new AudioWorkletNode(ctx,'noise-gate',{outputChannelCount:[1]});
+    N.pitch = new AudioWorkletNode(ctx,'pitch-shifter',{outputChannelCount:[1]});
+    // Ringmodulation (Roboter)
+    N.dryR = ctx.createGain(); N.wetR = ctx.createGain();
+    N.ring = ctx.createGain(); N.ring.gain.value = 0;
+    N.osc = ctx.createOscillator(); N.osc.type='sine'; N.osc.connect(N.ring.gain); N.osc.start();
+    N.mix = ctx.createGain();
+    // Verzerrung + Filter
+    N.shaper = ctx.createWaveShaper(); N.shaper.oversample='2x'; N.shaperOut = ctx.createGain();
+    N.filt = ctx.createBiquadFilter();
+    // Echo + Hall
+    N.dry = ctx.createGain();
+    N.echoSend = ctx.createGain(); N.dly = ctx.createDelay(1.5); N.fb = ctx.createGain();
+    N.revSend = ctx.createGain(); N.conv = ctx.createConvolver(); N.conv.buffer = impulse(2.6, 3);
+    // Master + Limiter (schützt Lautsprecher und Ohren)
+    N.master = ctx.createGain();
+    N.lim = ctx.createDynamicsCompressor(); N.lim.threshold.value=-10; N.lim.knee.value=6; N.lim.ratio.value=12; N.lim.attack.value=0.003; N.lim.release.value=0.15;
+    N.anIn = ctx.createAnalyser(); N.anOut = ctx.createAnalyser(); N.anIn.fftSize = N.anOut.fftSize = 512;
+
+    src.connect(N.inGain); N.inGain.connect(N.hp); N.hp.connect(N.anIn); N.hp.connect(N.gate); N.gate.connect(N.pitch);
+    N.pitch.connect(N.dryR); N.pitch.connect(N.ring); N.ring.connect(N.wetR);
+    N.dryR.connect(N.mix); N.wetR.connect(N.mix);
+    N.mix.connect(N.shaper); N.shaper.connect(N.shaperOut); N.shaperOut.connect(N.filt);
+    N.filt.connect(N.dry); N.dry.connect(N.master);
+    N.filt.connect(N.echoSend); N.echoSend.connect(N.dly); N.dly.connect(N.fb); N.fb.connect(N.dly); N.dly.connect(N.master);
+    N.filt.connect(N.revSend); N.revSend.connect(N.conv); N.conv.connect(N.master);
+    N.master.connect(N.lim); N.lim.connect(N.anOut); N.anOut.connect(ctx.destination);
+
+    if(ctx.state==='suspended') await ctx.resume();
+    apply();
+    running = true;
+    $('start').textContent='■ Stoppen'; $('start').classList.add('on');
+    $('status').innerHTML = '<b>● Live</b> – sprich ins Mikrofon.';
+    try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+    const lat = ((ctx.baseLatency||0)+(ctx.outputLatency||0))*1000;
+    $('lat').textContent = `Gemessene System-Latenz: ${lat ? Math.round(lat)+' ms' : 'vom Browser nicht gemeldet'} (+ ca. 20 ms durch die Tonhöhen-Verschiebung). Abtastrate: ${ctx.sampleRate} Hz.`;
+    meter();
+  }catch(e){
+    $('status').innerHTML = '';
+    const d=document.createElement('div'); d.className='warn err';
+    d.textContent = '⚠️ ' + (e.name==='NotAllowedError' ? 'Mikrofon wurde nicht erlaubt. In den Browser-Einstellungen für diese Seite das Mikrofon freigeben.' : (e.message||e));
+    $('status').appendChild(d); stop();
+  }
+}
+function stop(){
+  running=false; cancelAnimationFrame(raf);
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  if(ctx) ctx.close(); ctx=null; N={};
+  if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock=null; }
+  $('start').textContent='▶ Starten'; $('start').classList.remove('on');
+  $('mIn').style.width=$('mOut').style.width='0';
+  if(!$('status').querySelector('.err')) $('status').textContent='Gestoppt.';
+}
+function level(an){ const a=new Float32Array(an.fftSize); an.getFloatTimeDomainData(a); let s=0; for(const v of a) s+=v*v; const db=10*Math.log10(s/a.length+1e-12); return Math.max(0,Math.min(100,(db+60)/60*100)); }
+function meter(){ if(!running||!N.anIn) return; $('mIn').style.width=level(N.anIn)+'%'; $('mOut').style.width=level(N.anOut)+'%'; raf=requestAnimationFrame(meter); }
+document.addEventListener('visibilitychange', async ()=>{ if(running && document.visibilityState==='visible'){ try{ wakeLock = await navigator.wakeLock.request('screen'); }catch(e){} if(ctx && ctx.state!=='running') ctx.resume(); } });
+
+$('start').onclick = ()=> running ? stop() : start();
+</script>
+</body>
+</html>
